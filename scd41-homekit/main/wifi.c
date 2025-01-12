@@ -17,7 +17,6 @@
 
 #include <nvs.h>
 #include <nvs_flash.h>
-#include "wifi.h"
 
 static const char *TAG = "wifi";
 static const int WIFI_CONNECTED_EVENT = BIT0;
