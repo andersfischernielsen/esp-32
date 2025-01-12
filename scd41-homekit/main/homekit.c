@@ -40,7 +40,7 @@ void update_hap_values(float temperature, float humidity, float co2)
     if (g_co2_detected_char)
     {
         ESP_LOGI(TAG, "CO2: %.1f ppm", co2);
-        int co2_detected = (co2 > 1100) ? 1 : 0;
+        int co2_detected = (co2 > 1000) ? 1 : 0;
         hap_val_t detected_val = {.i = co2_detected};
         hap_val_t level_val = {.f = co2};
         ESP_LOGI(TAG, "Setting CO2 detected to %d", co2_detected);
