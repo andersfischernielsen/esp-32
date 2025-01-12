@@ -1,5 +1,11 @@
 # Apple Home Climate Sensing (SCD41)
 
+<p align="center">
+<img width="535" alt="home-2" src="https://github.com/user-attachments/assets/971c91d2-50bb-444b-99a3-8c6510601f68" />
+</p>
+
+---
+
 This project will monitor temperature, humidity and CO2 levels from an SCD41 sensor connected to an ESP32 and transmit the data to Apple Home.
 
 To configure the project, run
