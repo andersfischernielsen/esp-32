@@ -1,5 +1,6 @@
 /*
- * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai)
+ * CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -17,6 +18,8 @@
 #include "driver/i2c.h"
 #include "scd4x_i2c.h"
 #include "sensirion_i2c_hal.h"
+
+#include <hap.h>
 
 #define TAG "SCD4X_APP"
 
@@ -75,31 +78,54 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing Sensirion HAL");
     sensirion_i2c_hal_init();
 
+    ESP_LOGI(TAG, "Stopping any ongoing measurements...");
+    ret = scd4x_stop_periodic_measurement();
+    if (ret != 0)
+    {
+        ESP_LOGW(TAG, "Failed to stop periodic measurement: %d", ret);
+    }
+
+    ESP_LOGI(TAG, "Waiting for sensor to initialize...");
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Ensure sensor is ready
+
     ESP_LOGI(TAG, "Starting SCD4X periodic measurement");
     ret = scd4x_start_periodic_measurement();
-    if (ret != ESP_OK)
+    if (ret != 0)
     {
-        ESP_LOGE(TAG, "Failed to start periodic measurement: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to start periodic measurement: %d", ret);
         return;
     }
 
     ESP_LOGI(TAG, "Waiting for first measurement...");
-    vTaskDelay(pdMS_TO_TICKS(5000)); // Allow sensor initialization
+    vTaskDelay(pdMS_TO_TICKS(5000));
 
     while (1)
     {
         uint16_t co2;
         int32_t temperature, humidity;
+        bool data_ready = false;
 
-        ret = scd4x_read_measurement(&co2, &temperature, &humidity);
-        if (ret == ESP_OK)
+        ret = scd4x_get_data_ready_flag(&data_ready);
+        if (ret == 0 && data_ready)
         {
-            ESP_LOGI(TAG, "CO2: %u ppm, Temperature: %.2f °C, Humidity: %.2f %%RH",
-                     co2, temperature / 1000.0, humidity / 1000.0);
+            ret = scd4x_read_measurement(&co2, &temperature, &humidity);
+            if (ret == 0)
+            {
+                ESP_LOGI(TAG, "CO2: %u ppm, Temperature: %.2f °C, Humidity: %.2f %%RH",
+                         co2, temperature / 1000.0, humidity / 1000.0);
+            }
+            else
+            {
+                ESP_LOGW(TAG, "Failed to read measurement: %d", ret);
+            }
+        }
+        else if (ret != 0)
+        {
+            ESP_LOGW(TAG, "Failed to get data ready flag: %d", ret);
         }
         else
         {
-            ESP_LOGW(TAG, "Failed to read measurement: %s", esp_err_to_name(ret));
+            ESP_LOGI(TAG, "Data not ready yet.");
         }
 
         vTaskDelay(pdMS_TO_TICKS(5000));
