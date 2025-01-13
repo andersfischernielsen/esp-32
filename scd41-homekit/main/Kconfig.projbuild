@@ -1,13 +1,13 @@
 menu "Wi-Fi Configuration"
     config WIFI_SSID
         string "Wi-Fi SSID"
-        default "myssid"
+        default ""
         help
             SSID for the Wi-Fi connection.
 
     config WIFI_PASSWORD
         string "Wi-Fi Password"
-        default "mypassword"
+        default ""
         help
             Password for the Wi-Fi connection.
 endmenu

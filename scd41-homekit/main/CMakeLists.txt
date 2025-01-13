@@ -1,26 +1,18 @@
 idf_component_register(
     SRCS 
         "main.c"
-        "wifi.h"
         "wifi.c"
-        "homekit.h"
-        "homekit.c"
+        "matter.cpp"
     INCLUDE_DIRS "."
     PRIV_REQUIRES 
         spi_flash
         esp_driver_gpio
         esp_driver_i2c
         i2c-scd4x
-        esp_hap_apple_profiles
-        esp_hap_core
-        esp_hap_extras
-        esp_hap_platform
-        hkdf-sha
-        json_generator
-        json_parser
-        mu_srp
         esp_wifi
         esp_netif
         nvs_flash
         wifi_provisioning
 )
+set(CMAKE_CXX_STANDARD 17)
+set_source_files_properties(matter.cpp PROPERTIES LANGUAGE CXX)

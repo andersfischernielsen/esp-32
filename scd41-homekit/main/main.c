@@ -8,15 +8,11 @@
 #include "esp_system.h"
 #include "esp_log.h"
 
-#include <hap.h>
-#include <hap_apple_servs.h>
-#include <hap_apple_chars.h>
-
 #include "driver/i2c.h"
 #include "scd4x_i2c.h"
 #include "sensirion_i2c_hal.h"
 
-#include "homekit.h"
+#include "matter.h"
 
 #define TAG "app"
 
@@ -54,7 +50,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing Sensirion HAL");
     sensirion_i2c_hal_init();
 
-    start_homekit();
+    initialize_matter();
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
     ret = scd4x_stop_periodic_measurement();
@@ -92,7 +88,7 @@ void app_main(void)
                 float temperature = raw_temperature / 1000.0f;
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
-                update_hap_values(temperature, humidity, co2);
+                update_matter_values(temperature, humidity, co2);
             }
             else
             {
