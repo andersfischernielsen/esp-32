@@ -1,9 +1,7 @@
 idf_component_register(
     SRCS 
         "main.c"
-        "wifi.h"
         "wifi.c"
-        "homekit.h"
         "homekit.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES 

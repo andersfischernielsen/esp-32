@@ -1,3 +1,5 @@
+#include "wifi.h"
+
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -52,7 +54,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-void app_wifi_init(void)
+esp_err_t app_wifi_init(void)
 {
     esp_err_t ret = nvs_flash_init();
 
@@ -76,6 +78,8 @@ void app_wifi_init(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    return ESP_OK;
 }
 
 esp_err_t app_wifi_start(TickType_t ticks_to_wait)

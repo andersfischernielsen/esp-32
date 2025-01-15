@@ -1,8 +1,8 @@
+#include "homekit.h"
+
 #include <hap.h>
 #include <hap_apple_servs.h>
 #include <hap_apple_chars.h>
-
-#include "wifi.h"
 
 #include "esp_log.h"
 
@@ -19,7 +19,7 @@ int accessory_identify_routine(hap_acc_t *accessory)
     return HAP_SUCCESS;
 }
 
-void update_hap_values(float temperature, float humidity, float co2)
+int update_hap_values(float temperature, float humidity, float co2)
 {
     if (g_temp_char)
     {
@@ -47,14 +47,15 @@ void update_hap_values(float temperature, float humidity, float co2)
         hap_char_update_val(g_co2_detected_char, &detected_val);
         hap_char_update_val(g_co2_level_char, &level_val);
     }
+    return HAP_SUCCESS;
 }
 
-void create_accessory_and_services(void)
+int create_accessory_and_services(void)
 {
     hap_acc_cfg_t cfg = {
         .name = "ESP32-SCD4x",
         .manufacturer = "Espressif",
-        .model = "ESP32-CO2",
+        .model = "ESP32-SCD4x",
         .serial_num = "001",
         .fw_rev = "1.0.0",
         .hw_rev = NULL,
@@ -83,13 +84,11 @@ void create_accessory_and_services(void)
     hap_acc_add_serv(accessory, co2_service);
 
     hap_acc_add_wifi_transport_service(accessory, 0);
+    return HAP_SUCCESS;
 }
 
-void start_homekit(void)
+int start_homekit(void)
 {
-    app_wifi_init();
-    app_wifi_start(2);
-
     hap_set_setup_code("347-53-475");
     hap_set_setup_id("3457");
 
@@ -97,14 +96,22 @@ void start_homekit(void)
     if (ret != HAP_SUCCESS)
     {
         ESP_LOGE(TAG, "Failed to initialize HomeKit");
-        return;
+        return HAP_FAIL;
     }
-    create_accessory_and_services();
+
+    ret = create_accessory_and_services();
+    if (ret != HAP_SUCCESS)
+    {
+        ESP_LOGE(TAG, "Failed to create accessory and services");
+        return HAP_FAIL;
+    }
 
     ret = hap_start();
     if (ret != HAP_SUCCESS)
     {
         ESP_LOGE(TAG, "Failed to start HomeKit");
-        return;
+        return HAP_FAIL;
     }
+    ESP_LOGI(TAG, "HomeKit started");
+    return HAP_SUCCESS;
 }

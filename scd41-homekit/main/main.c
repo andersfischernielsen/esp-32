@@ -17,6 +17,7 @@
 #include "sensirion_i2c_hal.h"
 
 #include "homekit.h"
+#include "wifi.h"
 
 #define TAG "app"
 
@@ -43,8 +44,21 @@ static esp_err_t i2c_master_init(void)
 
 void app_main(void)
 {
+    esp_err_t ret = app_wifi_init();
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize Wi-Fi");
+        return;
+    }
+    ret = app_wifi_start(2);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to start Wi-Fi");
+        return;
+    }
+
     ESP_LOGI(TAG, "Initializing I2C & SCD4x");
-    esp_err_t ret = i2c_master_init();
+    ret = i2c_master_init();
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize I2C master");
@@ -53,8 +67,6 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Initializing Sensirion HAL");
     sensirion_i2c_hal_init();
-
-    start_homekit();
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
     ret = scd4x_stop_periodic_measurement();
@@ -77,6 +89,13 @@ void app_main(void)
     ESP_LOGI(TAG, "Waiting for first measurement");
     vTaskDelay(pdMS_TO_TICKS(5000));
 
+    ret = start_homekit();
+    if (ret != 0)
+    {
+        ESP_LOGE(TAG, "Failed to start HomeKit");
+        return;
+    }
+
     while (1)
     {
         uint16_t raw_co2;
@@ -92,7 +111,11 @@ void app_main(void)
                 float temperature = raw_temperature / 1000.0f;
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
-                update_hap_values(temperature, humidity, co2);
+                ret = update_hap_values(temperature, humidity, co2);
+                if (ret != 0)
+                {
+                    ESP_LOGE(TAG, "Failed to update HomeKit values");
+                }
             }
             else
             {
