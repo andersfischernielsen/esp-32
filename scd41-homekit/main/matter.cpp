@@ -130,7 +130,7 @@ int update_matter_values(float temperature, float humidity, float co2)
     if (co2_ep_id > 0)
     {
         esp_matter_attr_val_t cval = esp_matter_uint16(scaled_co2);
-        esp_err_t err = attribute::update(hum_ep_id, CarbonDioxideConcentrationMeasurement::Id,
+        esp_err_t err = attribute::update(co2_ep_id, CarbonDioxideConcentrationMeasurement::Id,
                                           CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, &cval);
         if (err != ESP_OK)
         {

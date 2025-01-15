@@ -13,6 +13,7 @@
 #include "sensirion_i2c_hal.h"
 
 #include "matter.h"
+#include "wifi.h"
 
 #define TAG "app"
 
@@ -50,7 +51,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing Sensirion HAL");
     sensirion_i2c_hal_init();
 
-    initialize_matter();
+    app_wifi_init();
+    app_wifi_start(pdMS_TO_TICKS(10000));
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
     ret = scd4x_stop_periodic_measurement();
@@ -72,6 +74,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Waiting for first measurement");
     vTaskDelay(pdMS_TO_TICKS(5000));
+    initialize_matter();
 
     while (1)
     {
