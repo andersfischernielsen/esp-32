@@ -12,6 +12,7 @@ static hap_char_t *g_temp_char = NULL;
 static hap_char_t *g_humidity_char = NULL;
 static hap_char_t *g_co2_detected_char = NULL;
 static hap_char_t *g_co2_level_char = NULL;
+static hap_char_t *g_occupancy_char = NULL;
 
 int accessory_identify_routine(hap_acc_t *accessory)
 {
@@ -47,6 +48,19 @@ int update_hap_values(float temperature, float humidity, float co2)
         hap_char_update_val(g_co2_detected_char, &detected_val);
         hap_char_update_val(g_co2_level_char, &level_val);
     }
+
+    return HAP_SUCCESS;
+}
+
+int update_hap_occupancy(bool occupancy)
+{
+    if (g_occupancy_char)
+    {
+        ESP_LOGI(TAG, "Occupancy: %s", occupancy ? "Occupied" : "Not Occupied");
+        hap_val_t occupancy_val = {.i = occupancy ? 1 : 0};
+        hap_char_update_val(g_occupancy_char, &occupancy_val);
+    }
+
     return HAP_SUCCESS;
 }
 
@@ -82,6 +96,10 @@ int create_accessory_and_services(void)
         400.0F);
     hap_serv_add_char(co2_service, g_co2_level_char);
     hap_acc_add_serv(accessory, co2_service);
+
+    hap_serv_t *occupancy_service = hap_serv_motion_sensor_create(false);
+    g_occupancy_char = hap_serv_get_char_by_uuid(occupancy_service, HAP_CHAR_UUID_OCCUPANCY_DETECTED);
+    hap_acc_add_serv(accessory, occupancy_service);
 
     hap_acc_add_wifi_transport_service(accessory, 0);
     return HAP_SUCCESS;
