@@ -29,10 +29,10 @@ static const char *TAG = "app";
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
 
-#define LD2420_UART_NUM UART_NUM_1
+#define LD2420_UART_NUM UART_NUM_2
 #define LD2420_UART_RX_PIN (GPIO_NUM_16)
 #define LD2420_UART_TX_PIN (GPIO_NUM_17)
-#define LD2420_UART_BAUD_RATE 256000
+#define LD2420_UART_BAUD_RATE 115200 // or 256000
 #define LD2420_UART_RX_BUF_SIZE 1024
 
 i2c_port_t i2c_master_port = I2C_MASTER_NUM;
@@ -67,7 +67,6 @@ static esp_err_t ld2420_uart_init(void)
                                  LD2420_UART_RX_PIN,
                                  UART_PIN_NO_CHANGE,
                                  UART_PIN_NO_CHANGE));
-
     return uart_driver_install(LD2420_UART_NUM,
                                LD2420_UART_RX_BUF_SIZE,
                                0,
@@ -84,7 +83,7 @@ static void ld2420_uart_task(void *arg)
 
     while (1)
     {
-        int len = uart_read_bytes(LD2420_UART_NUM, data, sizeof(data), pdMS_TO_TICKS(100));
+        int len = uart_read_bytes(LD2420_UART_NUM, data, sizeof(data), pdMS_TO_TICKS(20));
         if (len > 0)
         {
             for (int i = 0; i < len; i++)
@@ -96,7 +95,12 @@ static void ld2420_uart_task(void *arg)
                     {
                         line_buf[line_pos] = '\0';
                         bool occupancy = ld2420_parse_simple_mode(line_buf, line_pos);
-                        update_hap_occupancy(occupancy);
+
+                        esp_err_t ret = update_hap_occupancy(occupancy);
+                        if (ret != HAP_SUCCESS)
+                        {
+                            ESP_LOGE(TAG, "Failed to update HomeKit value");
+                        }
                         line_pos = 0;
                     }
                 }
@@ -113,13 +117,13 @@ static void ld2420_uart_task(void *arg)
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
 static void start_ld2420_task(void)
 {
-    xTaskCreate(ld2420_uart_task, "ld2420_uart_task", 2048, NULL, 5, NULL);
+    xTaskCreate(ld2420_uart_task, "ld2420_uart_task", 4096, NULL, 5, NULL);
 }
 
 static void scd4x_i2c_task(void *arg)
@@ -140,7 +144,7 @@ static void scd4x_i2c_task(void *arg)
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
                 ret = update_hap_values(temperature, humidity, co2);
-                if (ret != 0)
+                if (ret != HAP_SUCCESS)
                 {
                     ESP_LOGE(TAG, "Failed to update HomeKit values");
                 }
@@ -172,27 +176,35 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Initializing WiFi");
     ESP_ERROR_CHECK(app_wifi_init());
+    ESP_LOGI(TAG, "Initialized WiFi");
 
     ESP_LOGI(TAG, "Starting WiFi");
     ESP_ERROR_CHECK(app_wifi_start(2));
+    ESP_LOGI(TAG, "Started WiFi");
 
     ESP_LOGI(TAG, "Initializing I2C & SCD4x");
     ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "Initialized I2C & SCD4x");
 
     ESP_LOGI(TAG, "Initializing UART & LD2420");
     ESP_ERROR_CHECK(ld2420_uart_init());
+    ESP_LOGI(TAG, "Initialized UART & LD2420 task");
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
     ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
+    ESP_LOGI(TAG, "Stopped any ongoing measurements");
 
     ESP_LOGI(TAG, "Waiting for sensor to initialize");
     vTaskDelay(pdMS_TO_TICKS(1000));
+    ESP_LOGI(TAG, "Waited for sensor to initialize");
 
     ESP_LOGI(TAG, "Starting SCD4X periodic measurement");
     ESP_ERROR_CHECK(scd4x_start_periodic_measurement());
+    ESP_LOGI(TAG, "Started SCD4X periodic measurement");
 
     ESP_LOGI(TAG, "Waiting for first measurement");
     vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "Waited for first measurement");
 
     ESP_LOGI(TAG, "Starting HomeKit");
     if (start_homekit() != HAP_SUCCESS)
@@ -200,9 +212,15 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to start HomeKit");
         return;
     }
+    ESP_LOGI(TAG, "Started HomeKit");
 
+    ESP_LOGI(TAG, "Starting SCD4X task");
     start_scd4x_task();
+    ESP_LOGI(TAG, "Started SCD4X task");
+
+    ESP_LOGI(TAG, "Starting LD2420 task");
     start_ld2420_task();
+    ESP_LOGI(TAG, "Started LD2420 task");
 
     while (1)
     {
