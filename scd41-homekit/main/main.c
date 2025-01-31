@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -18,7 +19,7 @@
 #include "scd4x_i2c.h"
 #include "sensirion_i2c_hal.h"
 
-#include "ld2420.h"
+#include "ld2420.c"
 #include "homekit.h"
 #include "wifi.h"
 
@@ -29,10 +30,6 @@ static const char *TAG = "app";
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
 
-#define LD2420_UART_NUM UART_NUM_2
-#define LD2420_UART_RX_PIN (GPIO_NUM_16)
-#define LD2420_UART_TX_PIN (GPIO_NUM_17)
-#define LD2420_UART_BAUD_RATE 115200 // or 256000
 #define LD2420_UART_RX_BUF_SIZE 1024
 
 i2c_port_t i2c_master_port = I2C_MASTER_NUM;
@@ -49,81 +46,6 @@ static esp_err_t i2c_master_init(void)
     };
     ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
     return i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
-}
-
-static esp_err_t ld2420_uart_init(void)
-{
-    uart_config_t uart_config = {
-        .baud_rate = LD2420_UART_BAUD_RATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
-    };
-    ESP_ERROR_CHECK(uart_param_config(LD2420_UART_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(LD2420_UART_NUM,
-                                 LD2420_UART_TX_PIN,
-                                 LD2420_UART_RX_PIN,
-                                 UART_PIN_NO_CHANGE,
-                                 UART_PIN_NO_CHANGE));
-    return uart_driver_install(LD2420_UART_NUM,
-                               LD2420_UART_RX_BUF_SIZE,
-                               0,
-                               0,
-                               NULL,
-                               0);
-}
-
-static void ld2420_uart_task(void *arg)
-{
-    uint8_t data[128];
-    char line_buf[256];
-    int line_pos = 0;
-
-    while (1)
-    {
-        int len = uart_read_bytes(LD2420_UART_NUM, data, sizeof(data), pdMS_TO_TICKS(20));
-        if (len > 0)
-        {
-            for (int i = 0; i < len; i++)
-            {
-                char c = (char)data[i];
-                if (c == '\n' || c == '\r')
-                {
-                    if (line_pos > 0)
-                    {
-                        line_buf[line_pos] = '\0';
-                        bool occupancy = ld2420_parse_simple_mode(line_buf, line_pos);
-
-                        esp_err_t ret = update_hap_occupancy(occupancy);
-                        if (ret != HAP_SUCCESS)
-                        {
-                            ESP_LOGE(TAG, "Failed to update HomeKit value");
-                        }
-                        line_pos = 0;
-                    }
-                }
-                else
-                {
-                    if (line_pos < (int)sizeof(line_buf) - 1)
-                    {
-                        line_buf[line_pos++] = c;
-                    }
-                    else
-                    {
-                        line_pos = 0;
-                    }
-                }
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-}
-
-static void start_ld2420_task(void)
-{
-    xTaskCreate(ld2420_uart_task, "ld2420_uart_task", 4096, NULL, 5, NULL);
 }
 
 static void scd4x_i2c_task(void *arg)
@@ -167,28 +89,20 @@ static void scd4x_i2c_task(void *arg)
     }
 }
 
-static void start_scd4x_task(void)
+void start_uart_ld2410s()
 {
-    xTaskCreate(scd4x_i2c_task, "scd4x_i2c_task", 2048, NULL, 5, NULL);
+    ld2420_set_config_mode(true);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ld2420_common_parameters();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ld2420_set_config_mode(false);
 }
 
-void app_main(void)
+void start_i2c_sdc4x()
 {
-    ESP_LOGI(TAG, "Initializing WiFi");
-    ESP_ERROR_CHECK(app_wifi_init());
-    ESP_LOGI(TAG, "Initialized WiFi");
-
-    ESP_LOGI(TAG, "Starting WiFi");
-    ESP_ERROR_CHECK(app_wifi_start(2));
-    ESP_LOGI(TAG, "Started WiFi");
-
     ESP_LOGI(TAG, "Initializing I2C & SCD4x");
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "Initialized I2C & SCD4x");
-
-    ESP_LOGI(TAG, "Initializing UART & LD2420");
-    ESP_ERROR_CHECK(ld2420_uart_init());
-    ESP_LOGI(TAG, "Initialized UART & LD2420 task");
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
     ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
@@ -206,6 +120,25 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(5000));
     ESP_LOGI(TAG, "Waited for first measurement");
 
+    ESP_LOGI(TAG, "Starting SCD4X task");
+    xTaskCreate(scd4x_i2c_task, "scd4x_i2c_task", 2048, NULL, 5, NULL);
+    ESP_LOGI(TAG, "Started SCD4X task");
+}
+
+void start_wifi()
+{
+
+    ESP_LOGI(TAG, "Initializing WiFi");
+    ESP_ERROR_CHECK(app_wifi_init());
+    ESP_LOGI(TAG, "Initialized WiFi");
+
+    ESP_LOGI(TAG, "Starting WiFi");
+    ESP_ERROR_CHECK(app_wifi_start(2));
+    ESP_LOGI(TAG, "Started WiFi");
+}
+
+void initialize_homekit()
+{
     ESP_LOGI(TAG, "Starting HomeKit");
     if (start_homekit() != HAP_SUCCESS)
     {
@@ -213,14 +146,18 @@ void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "Started HomeKit");
+}
 
-    ESP_LOGI(TAG, "Starting SCD4X task");
-    start_scd4x_task();
-    ESP_LOGI(TAG, "Started SCD4X task");
+void app_main(void)
+{
+    ld2420_uart_init();
+    vTaskDelay(pdMS_TO_TICKS(300));
+    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
 
-    ESP_LOGI(TAG, "Starting LD2420 task");
-    start_ld2420_task();
-    ESP_LOGI(TAG, "Started LD2420 task");
+    start_uart_ld2410s();
+    // start_i2c_sdc4x();
+    // start_wifi();
+    // initialize_homekit();
 
     while (1)
     {
