@@ -44,57 +44,20 @@ static esp_err_t i2c_master_init(void)
 
 void app_main(void)
 {
-    esp_err_t ret = app_wifi_init();
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to initialize Wi-Fi");
-        return;
-    }
-    ret = app_wifi_start(2);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to start Wi-Fi");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Initializing I2C & SCD4x");
-    ret = i2c_master_init();
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to initialize I2C master");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Initializing Sensirion HAL");
-    sensirion_i2c_hal_init();
-
-    ESP_LOGI(TAG, "Stopping any ongoing measurements");
-    ret = scd4x_stop_periodic_measurement();
-    if (ret != 0)
-    {
-        ESP_LOGW(TAG, "Failed to stop periodic measurement");
-    }
+    ESP_ERROR_CHECK(app_wifi_init());
+    ESP_ERROR_CHECK(app_wifi_start(2));
+    ESP_ERROR_CHECK(i2c_master_init());
+    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
 
     ESP_LOGI(TAG, "Waiting for sensor to initialize");
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    ESP_LOGI(TAG, "Starting SCD4X periodic measurement");
-    ret = scd4x_start_periodic_measurement();
-    if (ret != 0)
-    {
-        ESP_LOGE(TAG, "Failed to start periodic measurement");
-        return;
-    }
+    ESP_ERROR_CHECK(scd4x_start_periodic_measurement());
 
     ESP_LOGI(TAG, "Waiting for first measurement");
     vTaskDelay(pdMS_TO_TICKS(5000));
 
-    ret = start_homekit();
-    if (ret != 0)
-    {
-        ESP_LOGE(TAG, "Failed to start HomeKit");
-        return;
-    }
+    ESP_ERROR_CHECK(start_homekit());
 
     while (1)
     {
@@ -102,7 +65,7 @@ void app_main(void)
         int32_t raw_temperature, raw_humidity;
         bool data_ready = false;
 
-        ret = scd4x_get_data_ready_flag(&data_ready);
+        esp_err_t ret = scd4x_get_data_ready_flag(&data_ready);
         if (ret == 0 && data_ready)
         {
             ret = scd4x_read_measurement(&raw_co2, &raw_temperature, &raw_humidity);
@@ -131,6 +94,6 @@ void app_main(void)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(8000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
