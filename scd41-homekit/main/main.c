@@ -93,8 +93,6 @@ void start_uart_ld2410s()
 {
     ld2420_set_config_mode(true);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    ld2420_common_parameters();
-    vTaskDelay(pdMS_TO_TICKS(1000));
     ld2420_set_config_mode(false);
 }
 
