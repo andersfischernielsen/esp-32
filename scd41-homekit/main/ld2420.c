@@ -233,7 +233,7 @@ void ld2420_read_task(void *param)
                 pos -= frame_length;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
     vTaskDelete(NULL);
 }
