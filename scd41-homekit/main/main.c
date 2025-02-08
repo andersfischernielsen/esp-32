@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <inttypes.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,19 +14,25 @@
 #include <hap_apple_servs.h>
 #include <hap_apple_chars.h>
 
+#include "driver/uart.h"
 #include "driver/i2c.h"
 #include "scd4x_i2c.h"
 #include "sensirion_i2c_hal.h"
 
+#include "ld2420.h"
 #include "homekit.h"
 #include "wifi.h"
 
-#define TAG "app"
+static const char *TAG = "main";
 
 #define I2C_MASTER_SCL_IO 22
 #define I2C_MASTER_SDA_IO 21
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
+#define LD2420_UART_RX_PIN (GPIO_NUM_16)
+#define LD2420_UART_TX_PIN (GPIO_NUM_17)
+
+#define LD2420_UART_RX_BUF_SIZE 1024
 
 i2c_port_t i2c_master_port = I2C_MASTER_NUM;
 
@@ -42,28 +50,33 @@ static esp_err_t i2c_master_init(void)
     return i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
 }
 
-void app_main(void)
+static esp_err_t ld2420_uart_init(void)
 {
-    ESP_ERROR_CHECK(app_wifi_init());
-    ESP_ERROR_CHECK(app_wifi_start(2));
-    ESP_ERROR_CHECK(i2c_master_init());
-    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
+    const uart_config_t uart_config = {
+        .baud_rate = LD2420_UART_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
 
-    ESP_LOGI(TAG, "Waiting for sensor to initialize");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    ESP_ERROR_CHECK(uart_param_config(LD2420_UART, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(LD2420_UART,
+                                 LD2420_UART_TX_PIN,
+                                 LD2420_UART_RX_PIN,
+                                 UART_PIN_NO_CHANGE,
+                                 UART_PIN_NO_CHANGE));
+    return uart_driver_install(LD2420_UART, 256, 0, 0, NULL, 0);
+}
 
-    ESP_ERROR_CHECK(scd4x_start_periodic_measurement());
-
-    ESP_LOGI(TAG, "Waiting for first measurement");
-    vTaskDelay(pdMS_TO_TICKS(5000));
-
-    ESP_ERROR_CHECK(start_homekit());
-
+static void scd4x_i2c_task(void *arg)
+{
     while (1)
     {
-        uint16_t raw_co2;
-        int32_t raw_temperature, raw_humidity;
-        bool data_ready = false;
+        static uint16_t raw_co2;
+        static int32_t raw_temperature, raw_humidity;
+        static bool data_ready = false;
 
         esp_err_t ret = scd4x_get_data_ready_flag(&data_ready);
         if (ret == 0 && data_ready)
@@ -74,8 +87,8 @@ void app_main(void)
                 float temperature = raw_temperature / 1000.0f;
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
-                ret = update_hap_values(temperature, humidity, co2);
-                if (ret != 0)
+                ret = update_hap_climate(temperature, humidity, co2);
+                if (ret != HAP_SUCCESS)
                 {
                     ESP_LOGE(TAG, "Failed to update HomeKit values");
                 }
@@ -94,6 +107,77 @@ void app_main(void)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+
+void start_uart_ld2420()
+{
+    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
+    ESP_ERROR_CHECK(ld2420_uart_init());
+    vTaskDelay(pdMS_TO_TICKS(300));
+    ESP_ERROR_CHECK(ld2420_send_report_mode());
+}
+
+void start_i2c_sdc4x()
+{
+    ESP_LOGI(TAG, "Initializing I2C & SCD4x");
+    ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "Initialized I2C & SCD4x");
+
+    ESP_LOGI(TAG, "Stopping any ongoing measurements");
+    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
+    ESP_LOGI(TAG, "Stopped any ongoing measurements");
+
+    ESP_LOGI(TAG, "Waiting for sensor to initialize");
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ESP_LOGI(TAG, "Waited for sensor to initialize");
+
+    ESP_LOGI(TAG, "Starting SCD4X periodic measurement");
+    ESP_ERROR_CHECK(scd4x_start_periodic_measurement());
+    ESP_LOGI(TAG, "Started SCD4X periodic measurement");
+
+    ESP_LOGI(TAG, "Waiting for first measurement");
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "Waited for first measurement");
+
+    ESP_LOGI(TAG, "Starting SCD4X task");
+    xTaskCreate(scd4x_i2c_task, "scd4x_i2c_task", 2048, NULL, 5, NULL);
+    ESP_LOGI(TAG, "Started SCD4X task");
+}
+
+void start_wifi()
+{
+
+    ESP_LOGI(TAG, "Initializing WiFi");
+    ESP_ERROR_CHECK(app_wifi_init());
+    ESP_LOGI(TAG, "Initialized WiFi");
+
+    ESP_LOGI(TAG, "Starting WiFi");
+    ESP_ERROR_CHECK(app_wifi_start(2));
+    ESP_LOGI(TAG, "Started WiFi");
+}
+
+void initialize_homekit()
+{
+    ESP_LOGI(TAG, "Starting HomeKit");
+    if (start_homekit() != HAP_SUCCESS)
+    {
+        ESP_LOGE(TAG, "Failed to start HomeKit");
+        return;
+    }
+    ESP_LOGI(TAG, "Started HomeKit");
+}
+
+void app_main(void)
+{
+    start_uart_ld2420();
+    start_i2c_sdc4x();
+    start_wifi();
+    initialize_homekit();
+
+    while (1)
+    {
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
