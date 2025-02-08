@@ -1,4 +1,5 @@
 #include "ld2420.h"
+#include "homekit.h"
 
 void ld2420_uart_init(void)
 {
@@ -20,40 +21,16 @@ void ld2420_uart_init(void)
     ESP_ERROR_CHECK(uart_driver_install(LD2420_UART, LD2420_RX_BUFFER_SIZE, 0, 0, NULL, 0));
 }
 
-esp_err_t ld2420_send_command(uint16_t command, const uint8_t *data, size_t data_len)
+esp_err_t ld2420_send_raw(const uint8_t *frame, size_t len)
 {
-    // [Header(4 bytes)] [Length(2 bytes)] [Command(2 bytes)] [Data(optional)] [Footer(4 bytes)]
-    uint8_t tx_buf[64];
-    uint16_t frame_len = data_len + 2; // (2 bytes for command)
-    uint16_t offset = 0;
-
-    // Header
-    memcpy(&tx_buf[offset], &CMD_FRAME_HEADER, sizeof(CMD_FRAME_HEADER));
-    offset += sizeof(CMD_FRAME_HEADER);
-
-    // Length (data_len + 2)
-    memcpy(&tx_buf[offset], &frame_len, sizeof(frame_len));
-    offset += sizeof(frame_len);
-
-    // Command (2 bytes)
-    memcpy(&tx_buf[offset], &command, sizeof(command));
-    offset += sizeof(command);
-
-    // Optional data
-    if (data_len > 0 && data != NULL)
+    if (len > 64)
     {
-        memcpy(&tx_buf[offset], data, data_len);
-        offset += data_len;
+        ESP_LOGE("LD2420", "Frame length %d exceeds limit of 64 bytes", len);
+        return ESP_ERR_INVALID_SIZE;
     }
 
-    // Footer
-    memcpy(&tx_buf[offset], &CMD_FRAME_FOOTER, sizeof(CMD_FRAME_FOOTER));
-    offset += sizeof(CMD_FRAME_FOOTER);
-
-    ESP_LOGI("LD2420", "TX Frame (%d bytes):", offset);
-    ESP_LOG_BUFFER_HEX("LD2420", tx_buf, offset);
-
-    int written = uart_write_bytes(LD2420_UART, (const char *)tx_buf, offset);
+    ESP_LOG_BUFFER_HEX("LD2420", frame, len);
+    int written = uart_write_bytes(LD2420_UART, (const char *)frame, len);
     if (written < 0)
     {
         ESP_LOGE("LD2420", "UART write error");
@@ -62,94 +39,23 @@ esp_err_t ld2420_send_command(uint16_t command, const uint8_t *data, size_t data
     return ESP_OK;
 }
 
-esp_err_t ld2420_set_config_mode(bool enable)
+void ld2420_send_enable_config(void)
 {
-    uint16_t proto_ver = 0x0001;
-    if (enable)
-    {
-        return ld2420_send_command(CMD_ENABLE_CONF,
-                                   (const uint8_t *)&proto_ver,
-                                   sizeof(proto_ver));
-    }
-    else
-    {
-        return ld2420_send_command(CMD_DISABLE_CONF, NULL, 0);
-    }
+    uint8_t frame[] = {
+        0xFD, 0xFC, 0xFB, 0xFA, // Header (FD FC FB FA)
+        0x04, 0x00,             // Length (4 bytes)
+        0xFF, 0x00,             // Command (0x00FF in little endian)
+        0x02, 0x00,             // Protocol version (0x0002 in little endian)
+        0x04, 0x03, 0x02, 0x01  // Footer (04 03 02 01)
+    };
+
+    ld2420_send_raw(frame, sizeof(frame));
 }
 
-esp_err_t ld2420_get_firmware_version(void)
+void ld2420_send_report_mode(void)
 {
-    esp_err_t ret = ld2420_set_config_mode(true);
-    if (ret != ESP_OK)
-        return ret;
-
-    ret = ld2420_send_command(CMD_READ_VERSION, NULL, 0);
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    ld2420_set_config_mode(false);
-    return ret;
-}
-
-void handle_ack_data(const uint8_t *buffer, int length)
-{
-    if (length < 12)
-    {
-        ESP_LOGW("LD2420", "ACK too short: %d bytes", length);
-        return;
-    }
-
-    uint16_t cmd;
-    memcpy(&cmd, &buffer[CMD_FRAME_COMMAND], sizeof(cmd));
-
-    uint16_t error_code;
-    memcpy(&error_code, &buffer[CMD_ERROR_WORD], sizeof(error_code));
-    if (error_code != 0)
-    {
-        ESP_LOGW("LD2420", "ACK Error 0x%04X for cmd=0x%04X", error_code, cmd);
-        return;
-    }
-
-    if (cmd == CMD_READ_VERSION)
-    {
-        int str_size = buffer[10];
-        if (str_size > 31)
-            str_size = 31;
-        memset(g_ld2420_firmware_ver, 0, sizeof(g_ld2420_firmware_ver));
-
-        if (str_size > 0 && (12 + str_size) <= length)
-        {
-            memcpy(g_ld2420_firmware_ver, &buffer[12], str_size);
-            ESP_LOGI("LD2420", "LD2420 Firmware Version: %s", g_ld2420_firmware_ver);
-        }
-        else
-        {
-            ESP_LOGI("LD2420", "LD2420 Firmware version parse mismatch. Full ACK:");
-            ESP_LOG_BUFFER_HEX("LD2420", buffer, length);
-        }
-    }
-}
-
-void handle_simple_mode_line(const uint8_t *buffer, int length)
-{
-    char temp[128] = {0};
-    int cpy_len = (length < 127) ? length : 127;
-    memcpy(temp, buffer, cpy_len);
-
-    bool presence = false;
-    if (strstr(temp, "ON"))
-    {
-        presence = true;
-    }
-
-    int distance_cm = 0;
-    char *p = strstr(temp, "Range ");
-    if (p)
-    {
-        distance_cm = atoi(p + 6);
-    }
-    ESP_LOGI("LD2420", "[Simple Mode] Presence: %s, Distance: %d cm",
-             (presence ? "ON" : "OFF"), distance_cm);
+    uint8_t frame[] = {0xFD, 0xFC, 0xFB, 0xFA, 0x08, 0x00, 0x12, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
+    ld2420_send_raw(frame, sizeof(frame));
 }
 
 void handle_energy_frame(const uint8_t *buffer, int length)
@@ -172,104 +78,88 @@ void handle_energy_frame(const uint8_t *buffer, int length)
         idx += 2;
     }
 
-    ESP_LOGI("LD2420", "[Energy Mode] Presence: %s, Distance: %u cm",
-             (presence ? "Detected" : "None"), distance_cm);
-
-    for (int i = 0; i < 16; i++)
+    if (presence == 0x01)
     {
-        ESP_LOGI("LD2420", "  Gate[%d] = %u", i, gates[i]);
+        update_hap_occupancy(1);
     }
-}
-
-void log_ascii_content(const uint8_t *data, int len)
-{
-    char ascii[256];
-    int idx = 0;
-
-    for (int i = 0; i < len; i++)
+    else
     {
-        if (data[i] >= 0x20 && data[i] < 0x7F)
-        {
-
-            if (idx < (int)(sizeof(ascii) - 2))
-            {
-                ascii[idx++] = data[i];
-            }
-        }
-        else
-        {
-
-            if (idx < (int)(sizeof(ascii) - 5))
-            {
-                idx += snprintf(&ascii[idx], 5, "\\x%02X", data[i]);
-            }
-        }
+        update_hap_occupancy(0);
     }
 
-    ascii[idx] = '\0';
-    ESP_LOGI("LD2420", "RX: %s", ascii);
+    ESP_LOGD("LD2420", "Presence: %u", presence);
+    ESP_LOGD("LD2420", "Distance: %u cm", distance_cm);
+    ESP_LOGD("LD2420", "Gates:\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u",
+             gates[0], gates[1], gates[2], gates[3],
+             gates[4], gates[5], gates[6], gates[7],
+             gates[8], gates[9], gates[10], gates[11],
+             gates[12], gates[13], gates[14], gates[15]);
 }
 
 void ld2420_read_task(void *param)
 {
     static uint8_t data[LD2420_RX_BUFFER_SIZE];
-    static uint8_t local_buf[2048];
+    static uint8_t local_buf[LD2420_RX_BUFFER_SIZE / 2];
     int pos = 0;
 
     while (1)
     {
-        int len = uart_read_bytes(LD2420_UART, data, sizeof(data), pdMS_TO_TICKS(1000));
+        int len = uart_read_bytes(LD2420_UART, data, sizeof(data), pdMS_TO_TICKS(100));
         if (len > 0)
         {
-            log_ascii_content(data, len);
-            ESP_LOGI("LD2420", "RX: %d bytes", len);
-            ESP_LOG_BUFFER_HEX("LD2420", data, len);
-
-            for (int i = 0; i < len; i++)
+            if (pos + len > (int)sizeof(local_buf))
             {
-                local_buf[pos++] = data[i];
-                if (pos >= (int)sizeof(local_buf))
-                {
+                pos = 0;
+            }
+            memcpy(&local_buf[pos], data, len);
+            pos += len;
 
-                    pos = 0;
+            while (pos >= 6)
+            {
+                if (local_buf[0] != 0xF4 || local_buf[1] != 0xF3 ||
+                    local_buf[2] != 0xF2 || local_buf[3] != 0xF1)
+                {
+                    memmove(local_buf, local_buf + 1, pos - 1);
+                    pos -= 1;
+                    continue;
                 }
 
-                if (pos >= 4)
+                if (pos < 6)
                 {
-                    if (local_buf[pos - 4] == 0x04 &&
-                        local_buf[pos - 3] == 0x03 &&
-                        local_buf[pos - 2] == 0x02 &&
-                        local_buf[pos - 1] == 0x01)
-                    {
-                        ESP_LOGI("LD2420", "ACK received");
-                        handle_ack_data(local_buf, pos);
-                        pos = 0;
-                        continue;
-                    }
+                    break;
                 }
 
-                if (g_current_mode == LD2420_MODE_SIMPLE && pos >= 2)
+                uint16_t payload_length = local_buf[4] | (local_buf[5] << 8);
+                uint16_t frame_length = payload_length + 10;
+                if (frame_length < 13 || frame_length > 64)
                 {
-                    if (local_buf[pos - 2] == '\r' && local_buf[pos - 1] == '\n')
-                    {
-                        handle_simple_mode_line(local_buf, pos);
-                        pos = 0;
-                        continue;
-                    }
+                    memmove(local_buf, local_buf + 1, pos - 1);
+                    pos -= 1;
+                    continue;
                 }
 
-                if (g_current_mode == LD2420_MODE_ENERGY && pos >= 4)
+                if (pos < frame_length)
                 {
-                    if (local_buf[pos - 4] == 0xF5 &&
-                        local_buf[pos - 3] == 0xF6 &&
-                        local_buf[pos - 2] == 0xF7 &&
-                        local_buf[pos - 1] == 0xF8)
-                    {
-                        handle_energy_frame(local_buf, pos);
-                        pos = 0;
-                        continue;
-                    }
+                    break;
                 }
+
+                if (local_buf[frame_length - 4] != 0xF8 ||
+                    local_buf[frame_length - 3] != 0xF7 ||
+                    local_buf[frame_length - 2] != 0xF6 ||
+                    local_buf[frame_length - 1] != 0xF5)
+                {
+                    memmove(local_buf, local_buf + 1, pos - 1);
+                    pos -= 1;
+                    continue;
+                }
+
+                handle_energy_frame(local_buf, frame_length);
+
+                if (pos > frame_length)
+                {
+                    memmove(local_buf, local_buf + frame_length, pos - frame_length);
+                }
+                pos -= frame_length;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(10));

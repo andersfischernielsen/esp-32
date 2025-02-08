@@ -65,7 +65,7 @@ static void scd4x_i2c_task(void *arg)
                 float temperature = raw_temperature / 1000.0f;
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
-                ret = update_hap_values(temperature, humidity, co2);
+                ret = update_hap_climate(temperature, humidity, co2);
                 if (ret != HAP_SUCCESS)
                 {
                     ESP_LOGE(TAG, "Failed to update HomeKit values");
@@ -89,11 +89,9 @@ static void scd4x_i2c_task(void *arg)
     }
 }
 
-void start_uart_ld2410s()
+void start_uart_ld2420()
 {
-    ld2420_set_config_mode(true);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ld2420_set_config_mode(false);
+    ld2420_send_report_mode();
 }
 
 void start_i2c_sdc4x()
@@ -152,10 +150,10 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(300));
     xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
 
-    start_uart_ld2410s();
-    // start_i2c_sdc4x();
-    // start_wifi();
-    // initialize_homekit();
+    start_uart_ld2420();
+    start_i2c_sdc4x();
+    start_wifi();
+    initialize_homekit();
 
     while (1)
     {

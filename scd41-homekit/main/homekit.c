@@ -12,7 +12,7 @@ static hap_char_t *g_temp_char = NULL;
 static hap_char_t *g_humidity_char = NULL;
 static hap_char_t *g_co2_detected_char = NULL;
 static hap_char_t *g_co2_level_char = NULL;
-static hap_char_t *g_motion_char = NULL;
+static hap_char_t *g_occupancy_char = NULL;
 
 int accessory_identify_routine(hap_acc_t *accessory)
 {
@@ -20,7 +20,7 @@ int accessory_identify_routine(hap_acc_t *accessory)
     return HAP_SUCCESS;
 }
 
-int update_hap_values(float temperature, float humidity, float co2)
+int update_hap_climate(float temperature, float humidity, float co2)
 {
     if (g_temp_char)
     {
@@ -52,24 +52,23 @@ int update_hap_values(float temperature, float humidity, float co2)
     return HAP_SUCCESS;
 }
 
-int update_hap_occupancy(bool motion)
+int update_hap_occupancy(int occupancy)
 {
-    if (g_motion_char)
+    if (g_occupancy_char)
     {
-        ESP_LOGI(TAG, "Motion: %s", motion ? "Yes" : "No");
-        hap_val_t occupancy_val = {.b = motion};
-        hap_char_update_val(g_motion_char, &occupancy_val);
+        ESP_LOGI(TAG, "Occupancy: %s", occupancy == 1 ? "Yes" : "No");
+        hap_val_t motion_val = {.u = occupancy};
+        hap_char_update_val(g_occupancy_char, &motion_val);
     }
 
     return HAP_SUCCESS;
 }
-
 int create_accessory_and_services(void)
 {
     hap_acc_cfg_t cfg = {
-        .name = "ESP32-SCD4x",
+        .name = "ESP32",
         .manufacturer = "Espressif",
-        .model = "ESP32-SCD4x",
+        .model = "ESP32",
         .serial_num = "001",
         .fw_rev = "1.0.0",
         .hw_rev = NULL,
@@ -97,9 +96,9 @@ int create_accessory_and_services(void)
     hap_serv_add_char(co2_service, g_co2_level_char);
     hap_acc_add_serv(accessory, co2_service);
 
-    hap_serv_t *motion_service = hap_serv_motion_sensor_create(false);
-    g_motion_char = hap_serv_get_char_by_uuid(motion_service, HAP_CHAR_UUID_MOTION_DETECTED);
-    hap_acc_add_serv(accessory, motion_service);
+    hap_serv_t *occupancy_service = hap_serv_occupancy_sensor_create(0);
+    g_occupancy_char = hap_serv_get_char_by_uuid(occupancy_service, HAP_CHAR_UUID_OCCUPANCY_DETECTED);
+    hap_acc_add_serv(accessory, occupancy_service);
 
     hap_acc_add_wifi_transport_service(accessory, 0);
     return HAP_SUCCESS;
