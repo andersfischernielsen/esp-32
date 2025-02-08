@@ -1,8 +1,8 @@
 # Apple Home Climate and Occupancy Sensing (SCD41/LD2420)
 
-<p align="center">
-<img width="535" alt="home-2" src="https://github.com/user-attachments/assets/971c91d2-50bb-444b-99a3-8c6510601f68" />
-</p>
+| Carbon Dioxide | Occupancy |
+|----------------|-----------|
+|<img width="535" alt="home-2" src="https://github.com/user-attachments/assets/971c91d2-50bb-444b-99a3-8c6510601f68" />|<img width="531" alt="image" src="https://github.com/user-attachments/assets/d1945922-418c-4bae-9c41-68b4cb7e41f5" />|
 
 ---
 
