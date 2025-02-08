@@ -19,16 +19,18 @@
 #include "scd4x_i2c.h"
 #include "sensirion_i2c_hal.h"
 
-#include "ld2420.c"
+#include "ld2420.h"
 #include "homekit.h"
 #include "wifi.h"
 
-static const char *TAG = "app";
+static const char *TAG = "main";
 
 #define I2C_MASTER_SCL_IO 22
 #define I2C_MASTER_SDA_IO 21
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
+#define LD2420_UART_RX_PIN (GPIO_NUM_16)
+#define LD2420_UART_TX_PIN (GPIO_NUM_17)
 
 #define LD2420_UART_RX_BUF_SIZE 1024
 
@@ -46,6 +48,26 @@ static esp_err_t i2c_master_init(void)
     };
     ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
     return i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+}
+
+static esp_err_t ld2420_uart_init(void)
+{
+    const uart_config_t uart_config = {
+        .baud_rate = LD2420_UART_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+
+    ESP_ERROR_CHECK(uart_param_config(LD2420_UART, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(LD2420_UART,
+                                 LD2420_UART_TX_PIN,
+                                 LD2420_UART_RX_PIN,
+                                 UART_PIN_NO_CHANGE,
+                                 UART_PIN_NO_CHANGE));
+    return uart_driver_install(LD2420_UART, 256, 0, 0, NULL, 0);
 }
 
 static void scd4x_i2c_task(void *arg)
@@ -91,7 +113,10 @@ static void scd4x_i2c_task(void *arg)
 
 void start_uart_ld2420()
 {
-    ld2420_send_report_mode();
+    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
+    ESP_ERROR_CHECK(ld2420_uart_init());
+    vTaskDelay(pdMS_TO_TICKS(300));
+    ESP_ERROR_CHECK(ld2420_send_report_mode());
 }
 
 void start_i2c_sdc4x()
@@ -146,10 +171,6 @@ void initialize_homekit()
 
 void app_main(void)
 {
-    ld2420_uart_init();
-    vTaskDelay(pdMS_TO_TICKS(300));
-    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
-
     start_uart_ld2420();
     start_i2c_sdc4x();
     start_wifi();
