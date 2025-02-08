@@ -74,9 +74,9 @@ static void scd4x_i2c_task(void *arg)
 {
     while (1)
     {
-        uint16_t raw_co2;
-        int32_t raw_temperature, raw_humidity;
-        bool data_ready = false;
+        static uint16_t raw_co2;
+        static int32_t raw_temperature, raw_humidity;
+        static bool data_ready = false;
 
         esp_err_t ret = scd4x_get_data_ready_flag(&data_ready);
         if (ret == 0 && data_ready)
@@ -107,7 +107,7 @@ static void scd4x_i2c_task(void *arg)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(8000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
 

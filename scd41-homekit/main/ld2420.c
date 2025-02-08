@@ -2,14 +2,27 @@
 #include "homekit.h"
 #include <math.h>
 
+#define NO_OCCUPANCY_DELAY_MS 30000
+
 static const char *TAG = "ld2420";
 
-static const float decay_factor = 0.000035f; // Decay factor for EMA (example: ~1/28800 for once-per-second over 8 hours)
-static const float outlier_threshold = 3.0f; // Outlier threshold in terms of standard deviations
+static const float DECAY_FACTOR = 0.0000000001f;
+static const float MIN_STDEV = 1.7f;
+static const float ABSOLUTE_MIN_CHANGE = 12.0f;
+
+static float gate_offsets[16] = {0};
+static float gate_scales[16] = {1};
 
 static float gate_means[16] = {0};
 static float gate_vars[16] = {0};
 static bool stats_initialized = false;
+
+static TickType_t last_detection_time = 0;
+
+static TickType_t get_current_time_ticks(void)
+{
+    return xTaskGetTickCount();
+}
 
 esp_err_t ld2420_send_raw(const uint8_t *frame, size_t len)
 {
@@ -39,6 +52,19 @@ esp_err_t ld2420_send_report_mode(void)
     return ld2420_send_raw(frame, sizeof(frame));
 }
 
+static void print_gate_info(float raw_value, float normalized_value,
+                            bool is_outlier,
+                            float mean, float stdev,
+                            float diff)
+{
+    const char *outlier_str = is_outlier ? "X" : "";
+
+    ESP_LOGI(TAG,
+             "RAW=%.1f,\tNORM=%.4f,\tMean=%.4f,\tStDev=%.4f,\tDiff=%.4f\t%s\t",
+             raw_value, normalized_value,
+             mean, stdev, diff, outlier_str);
+}
+
 void process_sensor_frame(const uint8_t *buffer, int length)
 {
     if (length < 45)
@@ -48,6 +74,7 @@ void process_sensor_frame(const uint8_t *buffer, int length)
     }
 
     uint16_t distance_cm = 0;
+    bool outlier_detected = false;
     memcpy(&distance_cm, &buffer[7], sizeof(distance_cm));
     uint16_t gates[16];
 
@@ -62,47 +89,82 @@ void process_sensor_frame(const uint8_t *buffer, int length)
     {
         for (int i = 0; i < 16; i++)
         {
-            gate_means[i] = (float)gates[i];
+            float initial = (float)gates[i];
+            gate_offsets[i] = initial;
+            gate_scales[i] = (initial > 1.0f) ? initial : 1.0f;
+
+            gate_means[i] = 0.0f;
             gate_vars[i] = 0.0f;
         }
         stats_initialized = true;
+        last_detection_time = get_current_time_ticks();
     }
 
-    bool outlier_detected = false;
     for (int i = 0; i < 16; i++)
     {
-        float g = (float)gates[i];
+        float raw_value = (float)gates[i];
+
+        float g_norm = (raw_value - gate_offsets[i]) / gate_scales[i];
 
         float old_mean = gate_means[i];
         float old_var = gate_vars[i];
 
-        float new_mean = (decay_factor * g) + ((1.0f - decay_factor) * old_mean);
+        float new_mean = (DECAY_FACTOR * g_norm) + ((1.0f - DECAY_FACTOR) * old_mean);
 
-        float delta = g - old_mean;
-        float new_var = (1.0f - decay_factor) * (old_var + decay_factor * delta * delta);
+        float delta = g_norm - old_mean;
+        float new_var = (1.0f - DECAY_FACTOR) * (old_var + DECAY_FACTOR * delta * delta);
 
         gate_means[i] = new_mean;
         gate_vars[i] = new_var;
 
         float stdev = sqrtf(new_var);
-        float upper_threshold = new_mean + (outlier_threshold * stdev);
-        float lower_threshold = new_mean - (outlier_threshold * stdev);
-        if (g > upper_threshold || g < lower_threshold)
+        if (stdev < MIN_STDEV)
+        {
+            stdev = MIN_STDEV;
+        }
+
+        float diff = fabsf(g_norm - new_mean);
+        bool is_greater_than_min_change = diff >= (ABSOLUTE_MIN_CHANGE);
+
+        if (is_greater_than_min_change)
         {
             outlier_detected = true;
         }
+        // if (is_greater_than_min_change)
+        // {
+        //     print_gate_info(
+        //         raw_value,
+        //         g_norm,
+        //         is_greater_than_min_change,
+        //         new_mean,
+        //         stdev,
+        //         diff);
+        // }
     }
 
-    uint8_t presence = outlier_detected ? 1 : 0;
+    TickType_t now = get_current_time_ticks();
+    uint8_t presence;
+    if (outlier_detected)
+    {
+        last_detection_time = now;
+        presence = 1;
+    }
+    else
+    {
+        if ((now - last_detection_time) >= pdMS_TO_TICKS(NO_OCCUPANCY_DELAY_MS))
+        {
+            presence = 0;
+        }
+        else
+        {
+            presence = 1;
+        }
+    }
+
     update_hap_occupancy(presence);
 
-    ESP_LOGD(TAG, "Presence: %u", presence);
-    ESP_LOGD(TAG, "Distance: %u cm", distance_cm);
-    ESP_LOGD(TAG, "Gates:\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u\n%u\t%u\t%u\t%u",
-             gates[0], gates[1], gates[2], gates[3],
-             gates[4], gates[5], gates[6], gates[7],
-             gates[8], gates[9], gates[10], gates[11],
-             gates[12], gates[13], gates[14], gates[15]);
+    ESP_LOGI(TAG, "Presence: %u", presence);
+    ESP_LOGI(TAG, "Distance: %u cm", distance_cm);
 }
 
 void ld2420_read_task(void *param)
@@ -113,7 +175,7 @@ void ld2420_read_task(void *param)
 
     while (1)
     {
-        int len = uart_read_bytes(LD2420_UART, data, sizeof(data), pdMS_TO_TICKS(100));
+        int len = uart_read_bytes(LD2420_UART, data, sizeof(data), pdMS_TO_TICKS(1000));
         if (len > 0)
         {
             if (pos + len > (int)sizeof(local_buf))
@@ -171,7 +233,7 @@ void ld2420_read_task(void *param)
                 pos -= frame_length;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
     vTaskDelete(NULL);
 }
