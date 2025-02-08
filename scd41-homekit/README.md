@@ -1,4 +1,4 @@
-# Apple Home Climate Sensing (SCD41)
+# Apple Home Climate and Occupancy Sensing (SCD41/LD2420)
 
 <p align="center">
 <img width="535" alt="home-2" src="https://github.com/user-attachments/assets/971c91d2-50bb-444b-99a3-8c6510601f68" />
