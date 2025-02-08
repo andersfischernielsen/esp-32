@@ -8,7 +8,7 @@ static const char *TAG = "ld2420";
 
 static const float DECAY_FACTOR = 0.0000000001f;
 static const float MIN_STDEV = 1.7f;
-static const float ABSOLUTE_MIN_CHANGE = 12.0f;
+static const float ABSOLUTE_MIN_CHANGE = 20.0f;
 
 static float gate_offsets[16] = {0};
 static float gate_scales[16] = {1};
