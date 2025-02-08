@@ -107,16 +107,16 @@ static void scd4x_i2c_task(void *arg)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
 
 void start_uart_ld2420()
 {
-    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
     ESP_ERROR_CHECK(ld2420_uart_init());
     vTaskDelay(pdMS_TO_TICKS(300));
     ESP_ERROR_CHECK(ld2420_send_report_mode());
+    xTaskCreate(ld2420_read_task, "ld2420_read_task", 4096, NULL, 5, NULL);
 }
 
 void start_i2c_sdc4x()
