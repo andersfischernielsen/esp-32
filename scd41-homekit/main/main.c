@@ -125,13 +125,13 @@ void start_i2c_sdc4x()
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "Initialized I2C & SCD4x");
 
-    ESP_LOGI(TAG, "Stopping any ongoing measurements");
-    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
-    ESP_LOGI(TAG, "Stopped any ongoing measurements");
-
     ESP_LOGI(TAG, "Waiting for sensor to initialize");
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "Waited for sensor to initialize");
+
+    ESP_LOGI(TAG, "Stopping any ongoing measurements");
+    ESP_ERROR_CHECK(scd4x_stop_periodic_measurement());
+    ESP_LOGI(TAG, "Stopped any ongoing measurements");
 
     ESP_LOGI(TAG, "Starting SCD4X periodic measurement");
     ESP_ERROR_CHECK(scd4x_start_periodic_measurement());
