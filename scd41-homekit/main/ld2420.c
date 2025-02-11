@@ -4,25 +4,13 @@
 
 #define NO_OCCUPANCY_DELAY_MS 60000
 
+#define SENSOR_READ_INTERVAL_MS 100
+
 static const char *TAG = "ld2420";
 
-static const float DECAY_FACTOR = 0.0000000001f;
-static const float MIN_STDEV = 1.7f;
-static const float ABSOLUTE_MIN_CHANGE = 25.0f;
-
-static float gate_offsets[16] = {0};
-static float gate_scales[16] = {1};
-
-static float gate_means[16] = {0};
-static float gate_vars[16] = {0};
-static bool stats_initialized = false;
-
-static TickType_t last_detection_time = 0;
-
-static TickType_t get_current_time_ticks(void)
-{
-    return xTaskGetTickCount();
-}
+static uint16_t occupancy_detected = 0;
+static uint16_t distance_detected = 0;
+static TickType_t last_occupancy_time = 0;
 
 esp_err_t ld2420_send_raw(const uint8_t *frame, size_t len)
 {
@@ -52,19 +40,6 @@ esp_err_t ld2420_send_report_mode(void)
     return ld2420_send_raw(frame, sizeof(frame));
 }
 
-static void print_gate_info(float raw_value, float normalized_value,
-                            bool is_outlier,
-                            float mean, float stdev,
-                            float diff)
-{
-    const char *outlier_str = is_outlier ? "X" : "";
-
-    ESP_LOGI(TAG,
-             "RAW=%.1f,\tNORM=%.4f,\tMean=%.4f,\tStDev=%.4f,\tDiff=%.4f\t%s\t",
-             raw_value, normalized_value,
-             mean, stdev, diff, outlier_str);
-}
-
 void process_sensor_frame(const uint8_t *buffer, int length)
 {
     if (length < 45)
@@ -74,8 +49,8 @@ void process_sensor_frame(const uint8_t *buffer, int length)
     }
 
     uint16_t distance_cm = 0;
-    bool outlier_detected = false;
     memcpy(&distance_cm, &buffer[7], sizeof(distance_cm));
+    distance_detected = distance_cm;
     uint16_t gates[16];
 
     int idx = 9;
@@ -85,86 +60,15 @@ void process_sensor_frame(const uint8_t *buffer, int length)
         idx += 2;
     }
 
-    if (!stats_initialized)
+    if (distance_cm > 40)
     {
-        for (int i = 0; i < 16; i++)
-        {
-            float initial = (float)gates[i];
-            gate_offsets[i] = initial;
-            gate_scales[i] = (initial > 1.0f) ? initial : 1.0f;
-
-            gate_means[i] = 0.0f;
-            gate_vars[i] = 0.0f;
-        }
-        stats_initialized = true;
-        last_detection_time = get_current_time_ticks();
-    }
-
-    for (int i = 0; i < 16; i++)
-    {
-        float raw_value = (float)gates[i];
-
-        float g_norm = (raw_value - gate_offsets[i]) / gate_scales[i];
-
-        float old_mean = gate_means[i];
-        float old_var = gate_vars[i];
-
-        float new_mean = (DECAY_FACTOR * g_norm) + ((1.0f - DECAY_FACTOR) * old_mean);
-
-        float delta = g_norm - old_mean;
-        float new_var = (1.0f - DECAY_FACTOR) * (old_var + DECAY_FACTOR * delta * delta);
-
-        gate_means[i] = new_mean;
-        gate_vars[i] = new_var;
-
-        float stdev = sqrtf(new_var);
-        if (stdev < MIN_STDEV)
-        {
-            stdev = MIN_STDEV;
-        }
-
-        float diff = fabsf(g_norm - new_mean);
-        bool is_greater_than_min_change = diff >= (ABSOLUTE_MIN_CHANGE);
-
-        if (is_greater_than_min_change)
-        {
-            outlier_detected = true;
-        }
-        // if (is_greater_than_min_change)
-        // {
-        //     print_gate_info(
-        //         raw_value,
-        //         g_norm,
-        //         is_greater_than_min_change,
-        //         new_mean,
-        //         stdev,
-        //         diff);
-        // }
-    }
-
-    TickType_t now = get_current_time_ticks();
-    uint8_t presence;
-    if (outlier_detected)
-    {
-        last_detection_time = now;
-        presence = 1;
+        occupancy_detected = 1;
+        last_occupancy_time = xTaskGetTickCount();
     }
     else
     {
-        if ((now - last_detection_time) >= pdMS_TO_TICKS(NO_OCCUPANCY_DELAY_MS))
-        {
-            presence = 0;
-        }
-        else
-        {
-            presence = 1;
-        }
+        occupancy_detected = 0;
     }
-
-    update_hap_occupancy(presence);
-
-    ESP_LOGI(TAG, "Presence: %u", presence);
-    ESP_LOGI(TAG, "Distance: %u cm", distance_cm);
 }
 
 void ld2420_read_task(void *param)
@@ -233,7 +137,20 @@ void ld2420_read_task(void *param)
                 pos -= frame_length;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (occupancy_detected == 0 &&
+            ((xTaskGetTickCount() - last_occupancy_time) >= pdMS_TO_TICKS(NO_OCCUPANCY_DELAY_MS)))
+        {
+            update_hap_occupancy(0);
+        }
+        else if (occupancy_detected == 1)
+        {
+            update_hap_occupancy(1);
+        }
+
+        ESP_LOGI(TAG, "Distance: %u cm", distance_detected);
+
+        vTaskDelay(pdMS_TO_TICKS(SENSOR_READ_INTERVAL_MS));
     }
     vTaskDelete(NULL);
 }

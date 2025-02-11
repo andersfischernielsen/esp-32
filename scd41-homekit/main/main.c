@@ -107,7 +107,7 @@ static void scd4x_i2c_task(void *arg)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
 
@@ -142,7 +142,7 @@ void start_i2c_sdc4x()
     ESP_LOGI(TAG, "Waited for first measurement");
 
     ESP_LOGI(TAG, "Starting SCD4X task");
-    xTaskCreate(scd4x_i2c_task, "scd4x_i2c_task", 2048, NULL, 5, NULL);
+    xTaskCreate(scd4x_i2c_task, "scd4x_i2c_task", 4096, NULL, 5, NULL);
     ESP_LOGI(TAG, "Started SCD4X task");
 }
 
