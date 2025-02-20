@@ -3,7 +3,7 @@ idf_component_register(
         "main.c"
         "wifi.c"
         "homekit.c"
-        "ld2420.c"
+       
     INCLUDE_DIRS "."
     PRIV_REQUIRES 
         spi_flash
