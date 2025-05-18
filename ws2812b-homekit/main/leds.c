@@ -145,18 +145,21 @@ void hsv2rgb(uint16_t h, uint8_t s, uint8_t v,
 
 void ws2812_set_power(bool on)
 {
+    if (g_power == on) { return; }
     g_power = on;
     update_pixels();
 }
 
 void ws2812_set_brightness(int brightness)
 {
+    if (g_brightness == brightness) { return; }
     g_brightness = brightness;
     update_pixels();
 }
 
 void ws2812_set_hue(int hue)
 {
+    if (g_hue == hue) { return; }
     g_hue = hue % 360;
     update_base_rgb();
     update_pixels();
@@ -164,6 +167,7 @@ void ws2812_set_hue(int hue)
 
 void ws2812_set_saturation(int saturation)
 {
+    if (g_saturation == saturation) { return; }
     g_saturation = saturation;
     update_base_rgb();
     update_pixels();

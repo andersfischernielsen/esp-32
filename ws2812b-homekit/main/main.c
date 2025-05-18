@@ -20,25 +20,6 @@
 
 static const char *TAG = "main";
 
-void start_wifi()
-{
-
-    ESP_LOGI(TAG, "Initializing WiFi");
-    ESP_ERROR_CHECK(app_wifi_init());
-    ESP_LOGI(TAG, "Initialized WiFi");
-
-    ESP_LOGI(TAG, "Starting WiFi");
-    ESP_ERROR_CHECK(app_wifi_start(2));
-    ESP_LOGI(TAG, "Started WiFi");
-}
-
-void initialize_leds()
-{
-    ESP_LOGI(TAG, "Starting LEDs");
-    ws2812_init();
-    ESP_LOGI(TAG, "Started LEDs");
-}
-
 void initialize_homekit()
 {
     ESP_LOGI(TAG, "Starting HomeKit");
@@ -50,11 +31,34 @@ void initialize_homekit()
     ESP_LOGI(TAG, "Started HomeKit");
 }
 
+static void on_wifi_ready(void)
+{
+    initialize_homekit();
+}
+
+void start_wifi()
+{
+
+    ESP_LOGI(TAG, "Initializing WiFi");
+    ESP_ERROR_CHECK(app_wifi_init());
+    ESP_LOGI(TAG, "Initialized WiFi");
+
+    ESP_LOGI(TAG, "Starting WiFi");
+    ESP_ERROR_CHECK(app_wifi_start(10, on_wifi_ready));
+    ESP_LOGI(TAG, "Started WiFi");
+}
+
+void initialize_leds()
+{
+    ESP_LOGI(TAG, "Starting LEDs");
+    ws2812_init();
+    ESP_LOGI(TAG, "Started LEDs");
+}
+
 void app_main(void)
 {
     initialize_leds();
     start_wifi();
-    initialize_homekit();
 
     while (1)
     {
