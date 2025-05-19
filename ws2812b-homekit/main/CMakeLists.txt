@@ -7,10 +7,6 @@ idf_component_register(
        
     INCLUDE_DIRS "."
     PRIV_REQUIRES 
-        spi_flash
-        esp_driver_gpio
-        esp_driver_i2c
-        i2c-scd4x
         esp_hap_apple_profiles
         esp_hap_core
         esp_hap_extras

@@ -15,6 +15,7 @@ static const char *TAG = "homekit";
 #define NVS_NAMESPACE "homekit_state"
 #define KEY_ON "hk_on"
 #define KEY_BRIGHTNESS "hk_bright"
+#define KEY_LAST_BRIGHTNESS "hk_last_bright"
 #define KEY_HUE "hk_hue"
 #define KEY_SATURATION "hk_sat"
 
@@ -23,6 +24,7 @@ static hap_char_t
     *brightness_char,
     *hue_char,
     *saturation_char;
+static int32_t last_brightness;
 
 static esp_err_t open_nvs_handle(nvs_handle_t *handle)
 {
@@ -148,6 +150,7 @@ static void persist_all_hap_characteristics()
 
     val = hap_char_get_val(brightness_char);
     save_int32_nvs(nvs_handle, KEY_BRIGHTNESS, val->i);
+    save_int32_nvs(nvs_handle, KEY_LAST_BRIGHTNESS, last_brightness);
 
     val = hap_char_get_val(hue_char);
     save_float_nvs(nvs_handle, KEY_HUE, val->f);
@@ -161,42 +164,28 @@ static void persist_all_hap_characteristics()
 static int ws2812_read(hap_char_t *hc, hap_status_t *status_code,
                        void *serv_priv, void *read_priv)
 {
-    ESP_LOGD(TAG, "Read callback invoked for characteristic: %s", hap_char_get_type_uuid(hc));
+    ESP_LOGI(TAG, "Read callback invoked for characteristic: %s", hap_char_get_type_uuid(hc));
 
     const char *char_uuid = hap_char_get_type_uuid(hc);
-    hap_val_t *current_val_ptr;
+    const hap_val_t *current_val_ptr;
+    *status_code = HAP_STATUS_SUCCESS;
 
     if (strcmp(char_uuid, HAP_CHAR_UUID_ON) == 0 ||
         strcmp(char_uuid, HAP_CHAR_UUID_BRIGHTNESS) == 0 ||
         strcmp(char_uuid, HAP_CHAR_UUID_HUE) == 0 ||
-        strcmp(char_uuid, HAP_CHAR_UUID_SATURATION) == 0)
+        strcmp(char_uuid, HAP_CHAR_UUID_SATURATION) == 0 ||
+        strcmp(char_uuid, HAP_CHAR_UUID_NAME) == 0)
     {
 
         current_val_ptr = hap_char_get_val(hc);
         if (current_val_ptr)
         {
-            *status_code = HAP_STATUS_SUCCESS;
             return HAP_SUCCESS;
         }
         else
         {
             ESP_LOGE(TAG, "Failed to get value for characteristic: %s", char_uuid);
-            *status_code = HAP_STATUS_VAL_INVALID;
-            return HAP_FAIL;
-        }
-    }
-    else if (strcmp(char_uuid, HAP_CHAR_UUID_NAME) == 0)
-    {
-        current_val_ptr = hap_char_get_val(hc);
-        if (current_val_ptr)
-        {
-            *status_code = HAP_STATUS_SUCCESS;
-            return HAP_SUCCESS;
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to get value for Name characteristic.");
-            *status_code = HAP_STATUS_VAL_INVALID;
+            *status_code = HAP_STATUS_RES_ABSENT;
             return HAP_FAIL;
         }
     }
@@ -218,25 +207,53 @@ static int ws2812_write(hap_write_data_t write_data[], int count,
     {
         write = &write_data[i];
         *(write->status) = HAP_STATUS_VAL_INVALID;
-        if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON))
+        const char *char_uuid = hap_char_get_type_uuid(write->hc);
+        if (!strcmp(char_uuid, HAP_CHAR_UUID_ON))
         {
-            hap_char_update_val(on_char, &(write->val));
+            bool new_on = write->val.b;
+            if (!new_on)
+            {
+                last_brightness = hap_char_get_val(brightness_char)->i;
+                hap_val_t zero = {.i = 0};
+                hap_char_update_val(brightness_char, &zero);
+            }
+            else
+            {
+                hap_val_t v = {.i = last_brightness};
+                hap_char_update_val(brightness_char, &v);
+            }
+            
+            hap_char_update_val(on_char, &write->val);
             *(write->status) = HAP_STATUS_SUCCESS;
             state_changed = true;
         }
-        else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_BRIGHTNESS))
+        else if (!strcmp(char_uuid, HAP_CHAR_UUID_BRIGHTNESS))
         {
-            hap_char_update_val(brightness_char, &(write->val));
+            int32_t new_b = write->val.i;
+
+            if (new_b > 0)
+            {
+                last_brightness = new_b;
+                hap_val_t onv = {.b = true};
+                hap_char_update_val(on_char, &onv);
+            }
+            else
+            {
+                hap_val_t offv = {.b = false};
+                hap_char_update_val(on_char, &offv);
+            }
+
+            hap_char_update_val(brightness_char, &write->val);
             *(write->status) = HAP_STATUS_SUCCESS;
             state_changed = true;
         }
-        else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_HUE))
+        else if (!strcmp(char_uuid, HAP_CHAR_UUID_HUE))
         {
             hap_char_update_val(hue_char, &(write->val));
             *(write->status) = HAP_STATUS_SUCCESS;
             state_changed = true;
         }
-        else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_SATURATION))
+        else if (!strcmp(char_uuid, HAP_CHAR_UUID_SATURATION))
         {
             hap_char_update_val(saturation_char, &(write->val));
             *(write->status) = HAP_STATUS_SUCCESS;
@@ -244,8 +261,7 @@ static int ws2812_write(hap_write_data_t write_data[], int count,
         }
         else
         {
-            ESP_LOGI(TAG, "Write for unhandled characteristic UUID: %s",
-                     hap_char_get_type_uuid(write->hc));
+            ESP_LOGI(TAG, "Write for unhandled characteristic UUID: %s", char_uuid);
             *(write->status) = HAP_FAIL;
         }
 
@@ -275,8 +291,8 @@ int create_accessories_and_services(void)
         .name = "ESP32 Lamp",
         .manufacturer = "Espressif",
         .model = "ESP32 Lamp",
-        .serial_num = "001",
-        .fw_rev = "1.0.0",
+        .serial_num = "666",
+        .fw_rev = "1.0.1",
         .hw_rev = NULL,
         .pv = "1.1",
         .identify_routine = accessory_identify_routine,
@@ -291,7 +307,9 @@ int create_accessories_and_services(void)
     hap_serv_add_char(light_service, hap_char_name_create("ESP32 Lamp"));
 
     bool initial_on = load_bool_nvs(KEY_ON, true);
-    int initial_brightness = load_int32_nvs(KEY_BRIGHTNESS, 100);
+    int32_t stored_last = load_int32_nvs(KEY_LAST_BRIGHTNESS, load_int32_nvs(KEY_BRIGHTNESS, 100));
+    last_brightness = stored_last;
+    int32_t initial_brightness = initial_on ? last_brightness : 0;
     float initial_hue = load_float_nvs(KEY_HUE, 0.0f);
     float initial_saturation = load_float_nvs(KEY_SATURATION, 0.0f);
 
@@ -324,10 +342,10 @@ void sync_leds_to_homekit(void)
     ws2812_set_brightness(val->i);
 
     val = hap_char_get_val(hue_char);
-    ws2812_set_hue((int)val->f);
+    ws2812_set_hue(val->f);
 
     val = hap_char_get_val(saturation_char);
-    ws2812_set_saturation((int)val->f);
+    ws2812_set_saturation(val->f);
 }
 
 void led_sync_task(void *pvParameter)
@@ -335,7 +353,7 @@ void led_sync_task(void *pvParameter)
     while (1)
     {
         sync_leds_to_homekit();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -360,6 +378,7 @@ int start_homekit(void)
         return HAP_FAIL;
     }
 
+    hap_http_debug_enable();
     ret = hap_start();
     if (ret != HAP_SUCCESS)
     {
