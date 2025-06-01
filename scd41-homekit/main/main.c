@@ -24,8 +24,8 @@
 
 static const char *TAG = "main";
 
-#define I2C_MASTER_SCL_IO 22
-#define I2C_MASTER_SDA_IO 21
+#define I2C_MASTER_SCL_IO 7
+#define I2C_MASTER_SDA_IO 6
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
 #define LD2420_UART_RX_PIN (GPIO_NUM_16)
@@ -63,7 +63,8 @@ static void scd4x_i2c_task(void *arg)
             ret = scd4x_read_measurement(&raw_co2, &raw_temperature, &raw_humidity);
             if (ret == 0)
             {
-                float temperature = raw_temperature / 1000.0f;
+                float temperature = (raw_temperature / 1000.0f) - 7.0f;
+                ESP_LOGI(TAG, "Raw Temperature: %" PRId32 ", Adjusted Temperature: %.2f °C", raw_temperature, temperature);
                 float humidity = raw_humidity / 1000.0f;
                 float co2 = (float)raw_co2;
                 ret = update_hap_climate(temperature, humidity, co2);
@@ -86,7 +87,7 @@ static void scd4x_i2c_task(void *arg)
             ESP_LOGI(TAG, "Data not ready yet");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 
@@ -97,7 +98,7 @@ void start_i2c_sdc4x()
     ESP_LOGI(TAG, "Initialized I2C & SCD4x");
 
     ESP_LOGI(TAG, "Waiting for sensor to initialize");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(2000));
     ESP_LOGI(TAG, "Waited for sensor to initialize");
 
     ESP_LOGI(TAG, "Stopping any ongoing measurements");
@@ -117,18 +118,6 @@ void start_i2c_sdc4x()
     ESP_LOGI(TAG, "Started SCD4X task");
 }
 
-void start_wifi()
-{
-
-    ESP_LOGI(TAG, "Initializing WiFi");
-    ESP_ERROR_CHECK(app_wifi_init());
-    ESP_LOGI(TAG, "Initialized WiFi");
-
-    ESP_LOGI(TAG, "Starting WiFi");
-    ESP_ERROR_CHECK(app_wifi_start(2));
-    ESP_LOGI(TAG, "Started WiFi");
-}
-
 void initialize_homekit()
 {
     ESP_LOGI(TAG, "Starting HomeKit");
@@ -140,14 +129,20 @@ void initialize_homekit()
     ESP_LOGI(TAG, "Started HomeKit");
 }
 
+void start_wifi()
+{
+
+    ESP_LOGI(TAG, "Initializing WiFi");
+    ESP_ERROR_CHECK(app_wifi_init());
+    ESP_LOGI(TAG, "Initialized WiFi");
+
+    ESP_LOGI(TAG, "Starting WiFi");
+    ESP_ERROR_CHECK(app_wifi_start(10, initialize_homekit));
+    ESP_LOGI(TAG, "Started WiFi");
+}
+
 void app_main(void)
 {
     start_i2c_sdc4x();
     start_wifi();
-    initialize_homekit();
-
-    while (1)
-    {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
 }

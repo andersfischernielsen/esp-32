@@ -54,10 +54,10 @@ int update_hap_climate(float temperature, float humidity, float co2)
 int create_accessories_and_services(void)
 {
     hap_acc_cfg_t cfg = {
-        .name = "ESP32",
+        .name = "ESP32 Climate Sensor",
         .manufacturer = "Espressif",
-        .model = "ESP32",
-        .serial_num = "001",
+        .model = "ESP32 Climate Sensor",
+        .serial_num = "666",
         .fw_rev = "1.0.0",
         .hw_rev = NULL,
         .pv = "1.1",
@@ -67,24 +67,23 @@ int create_accessories_and_services(void)
     hap_acc_t *accessory = hap_acc_create(&cfg);
     hap_add_accessory(accessory);
 
-    hap_serv_t *temperature_service = hap_serv_temperature_sensor_create(25.0F);
+    hap_serv_t *temperature_service = hap_serv_temperature_sensor_create(22.0F);
     g_temp_char = hap_serv_get_char_by_uuid(temperature_service, HAP_CHAR_UUID_CURRENT_TEMPERATURE);
-    hap_acc_add_serv(accessory, temperature_service);
 
-    hap_serv_t *hum_service = hap_serv_humidity_sensor_create(50.0F);
+    hap_serv_t *hum_service = hap_serv_humidity_sensor_create(20.0F);
     g_humidity_char = hap_serv_get_char_by_uuid(hum_service, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY);
-    hap_acc_add_serv(accessory, hum_service);
 
     hap_serv_t *co2_service = hap_serv_carbon_dioxide_sensor_create(0);
     g_co2_detected_char = hap_serv_get_char_by_uuid(co2_service, HAP_CHAR_UUID_CARBON_DIOXIDE_DETECTED);
-    g_co2_level_char = hap_char_float_create(
-        HAP_CHAR_UUID_CARBON_DIOXIDE_LEVEL,
-        HAP_CHAR_PERM_PR | HAP_CHAR_PERM_EV,
-        400.0F);
+    g_co2_level_char = hap_char_carbon_dioxide_level_create(400.0F);
     hap_serv_add_char(co2_service, g_co2_level_char);
+
+    hap_acc_add_serv(accessory, hum_service);
+    hap_acc_add_serv(accessory, temperature_service);
     hap_acc_add_serv(accessory, co2_service);
 
     hap_acc_add_wifi_transport_service(accessory, 0);
+
     return HAP_SUCCESS;
 }
 

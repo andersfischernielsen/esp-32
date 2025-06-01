@@ -23,6 +23,7 @@
 static const char *TAG = "wifi";
 static const int WIFI_CONNECTED_EVENT = BIT0;
 static EventGroupHandle_t wifi_event_group;
+static wifi_ready_cb_t s_wifi_ready_cb = NULL;
 
 /* Event handler for catching system events */
 static void event_handler(void *arg, esp_event_base_t event_base,
@@ -42,6 +43,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IPv4: " IPSTR, IP2STR(&event->ip_info.ip));
         /* Signal main application to continue execution */
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_EVENT);
+
+        if (s_wifi_ready_cb)
+        {
+            s_wifi_ready_cb();
+            s_wifi_ready_cb = NULL;
+        }
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_GOT_IP6)
     {
@@ -82,8 +89,10 @@ esp_err_t app_wifi_init(void)
     return ESP_OK;
 }
 
-esp_err_t app_wifi_start(TickType_t ticks_to_wait)
+esp_err_t app_wifi_start(TickType_t ticks_to_wait, wifi_ready_cb_t cb)
 {
+    s_wifi_ready_cb = cb;
+
     wifi_config_t wifi_config = {
         .sta = {
             .ssid = APP_WIFI_SSID,
