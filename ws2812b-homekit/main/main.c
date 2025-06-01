@@ -30,11 +30,6 @@ void initialize_homekit()
     ESP_LOGI(TAG, "Started HomeKit");
 }
 
-static void on_wifi_ready(void)
-{
-    initialize_homekit();
-}
-
 void start_wifi()
 {
 
@@ -43,7 +38,7 @@ void start_wifi()
     ESP_LOGI(TAG, "Initialized WiFi");
 
     ESP_LOGI(TAG, "Starting WiFi");
-    ESP_ERROR_CHECK(app_wifi_start(10, on_wifi_ready));
+    ESP_ERROR_CHECK(app_wifi_start(10, initialize_homekit));
     ESP_LOGI(TAG, "Started WiFi");
 }
 
@@ -58,9 +53,4 @@ void app_main(void)
 {
     initialize_leds();
     start_wifi();
-
-    while (1)
-    {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
 }

@@ -222,7 +222,7 @@ static int ws2812_write(hap_write_data_t write_data[], int count,
                 hap_val_t v = {.i = last_brightness};
                 hap_char_update_val(brightness_char, &v);
             }
-            
+
             hap_char_update_val(on_char, &write->val);
             *(write->status) = HAP_STATUS_SUCCESS;
             state_changed = true;
@@ -306,19 +306,15 @@ int create_accessories_and_services(void)
     hap_serv_t *light_service = hap_serv_lightbulb_create(true);
     hap_serv_add_char(light_service, hap_char_name_create("ESP32 Lamp"));
 
-    bool initial_on = load_bool_nvs(KEY_ON, true);
-    int32_t stored_last = load_int32_nvs(KEY_LAST_BRIGHTNESS, load_int32_nvs(KEY_BRIGHTNESS, 100));
-    last_brightness = stored_last;
-    int32_t initial_brightness = initial_on ? last_brightness : 0;
+    int32_t initial_brightness = load_int32_nvs(KEY_LAST_BRIGHTNESS, load_int32_nvs(KEY_BRIGHTNESS, 100));
     float initial_hue = load_float_nvs(KEY_HUE, 0.0f);
     float initial_saturation = load_float_nvs(KEY_SATURATION, 0.0f);
 
-    on_char = hap_char_on_create(initial_on);
+    on_char = hap_serv_get_char_by_uuid(light_service, HAP_CHAR_UUID_ON);
     brightness_char = hap_char_brightness_create(initial_brightness);
     hue_char = hap_char_hue_create(initial_hue);
     saturation_char = hap_char_saturation_create(initial_saturation);
 
-    hap_serv_add_char(light_service, on_char);
     hap_serv_add_char(light_service, brightness_char);
     hap_serv_add_char(light_service, hue_char);
     hap_serv_add_char(light_service, saturation_char);
@@ -353,7 +349,7 @@ void led_sync_task(void *pvParameter)
     while (1)
     {
         sync_leds_to_homekit();
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -391,5 +387,7 @@ int start_homekit(void)
     xTaskCreate(led_sync_task, "LED Sync Task", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
     ESP_LOGI(TAG, "Started LED sync task");
 
+    hap_val_t onv = {.b = true};
+    hap_char_update_val(on_char, &onv);
     return HAP_SUCCESS;
 }
