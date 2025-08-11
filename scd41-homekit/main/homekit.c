@@ -12,6 +12,7 @@ static hap_char_t *g_temp_char = NULL;
 static hap_char_t *g_humidity_char = NULL;
 static hap_char_t *g_co2_detected_char = NULL;
 static hap_char_t *g_co2_level_char = NULL;
+static hap_char_t *g_air_quality_char = NULL;
 
 int accessory_identify_routine(hap_acc_t *accessory)
 {
@@ -48,6 +49,36 @@ int update_hap_climate(float temperature, float humidity, float co2)
         hap_char_update_val(g_co2_level_char, &level_val);
     }
 
+    if (g_air_quality_char)
+    {
+        uint8_t air_quality;
+
+        if (co2 <= 600)
+        {
+            air_quality = 1;
+        }
+        else if (co2 <= 1000)
+        {
+            air_quality = 2;
+        }
+        else if (co2 <= 1500)
+        {
+            air_quality = 3;
+        }
+        else if (co2 <= 2000)
+        {
+            air_quality = 4;
+        }
+        else
+        {
+            air_quality = 5;
+        }
+
+        hap_val_t quality_val = {.u = air_quality};
+        ESP_LOGI(TAG, "Setting air quality to %d (CO2: %.1f ppm)", air_quality, co2);
+        hap_char_update_val(g_air_quality_char, &quality_val);
+    }
+
     return HAP_SUCCESS;
 }
 
@@ -78,9 +109,13 @@ int create_accessories_and_services(void)
     g_co2_level_char = hap_char_carbon_dioxide_level_create(400.0F);
     hap_serv_add_char(co2_service, g_co2_level_char);
 
+    hap_serv_t *air_quality_service = hap_serv_air_quality_sensor_create(0);
+    g_air_quality_char = hap_serv_get_char_by_uuid(air_quality_service, HAP_CHAR_UUID_AIR_QUALITY);
+
     hap_acc_add_serv(accessory, hum_service);
     hap_acc_add_serv(accessory, temperature_service);
     hap_acc_add_serv(accessory, co2_service);
+    hap_acc_add_serv(accessory, air_quality_service);
 
     hap_acc_add_wifi_transport_service(accessory, 0);
 
